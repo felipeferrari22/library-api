@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require("express");
 const app = express();
+const requestIp = require('request-ip');
 const port = process.env.PORT;
 const cookieParser = require('cookie-parser');
 const ExpressError = require('./utils/ExpressError.js');
@@ -10,8 +11,11 @@ require('./models/Book');
 const userRoutes = require('./routes/users');
 require('./models/Rent');
 require('./models/Comment');
+require('./models/Log');
 
 app.use(cors());
+
+app.use(requestIp.mw());
 
 app.use(cookieParser());
 

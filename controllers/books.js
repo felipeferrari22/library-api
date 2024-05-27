@@ -1,6 +1,7 @@
 const con = require('../database/db');
 const { cloudinary } = require('../cloudinary');
 require('dotenv').config();
+const requestIp = require('request-ip');
 
 module.exports.getBooks = async (req, res) => {
     const { search } = req.query;
@@ -11,6 +12,8 @@ module.exports.getBooks = async (req, res) => {
 
 module.exports.createBook = async (req, res) => {
     let image = process.env.CLOUDINARY_BOOK_URL;
+    const terminal_ip = req.clientIp;
+    const user_id = req.user.userId;
     if (req.file) {
         image = req.file.path;
     }
@@ -34,25 +37,32 @@ module.exports.createBook = async (req, res) => {
     } else {
         authorId = authorRows[0].id;
     }
+    await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Created Book", ?, ?, ?)', [terminal_ip, user_id, title]);
     await con.promise().query('INSERT INTO books (title, release_date, qty_available, description, image, author) VALUES (?, ?, ?, ?, ?, ?)', [title, release_date, qty_available, description, image, authorId]);
     res.json('Book created');
 }
 
 module.exports.deleteBook = async (req, res) => {
     const { id } = req.params;
-    const [rows] = await con.promise().query('SELECT image FROM books WHERE id = ?', [id]);
+    const terminal_ip = req.clientIp;
+    const user_id = req.user.userId;
+    const [rows] = await con.promise().query('SELECT title, image FROM books WHERE id = ?', [id]);
     const imageUrl = rows[0].image;
+    const title = rows[0].title;
     const publicId = imageUrl.split('/').slice(-2).join('/').split('.').slice(0, -1).join('.');
     if (publicId !== process.env.CLOUDINARY_BOOK_ID) {
         await cloudinary.uploader.destroy(publicId);
     }
     await con.promise().query("UPDATE users SET favorite_book = NULL WHERE favorite_book = ?", [id]);
+    await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Deleted Book", ?, ?, ?)', [terminal_ip, user_id, title]);
     await con.promise().query('DELETE FROM books WHERE id = ?', [id]);
     res.json('Book deleted');
 }
 
 module.exports.updateBook = async (req, res) => {
     const { title, release_date, description, author, qty_available } = req.body;
+    const terminal_ip = req.clientIp;
+    const user_id = req.user.userId;
     if (!(/[a-zA-Z]/.test(title))) {
         return res.status(422).json({ message: 'Insert a valid title.' });
     } 
@@ -70,19 +80,24 @@ module.exports.updateBook = async (req, res) => {
     } else {
         authorId = authorRows[0].id;
     }
+    await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Updated Book", ?, ?, ?)', [terminal_ip, user_id, title]);
     await con.promise().query('UPDATE books SET title = ?, release_date = ?, description = ?, author = ?, qty_available = ? WHERE id = ?', [title, release_date, description, authorId, qty_available, id]);
     res.json('Book updated');
 }
 
 module.exports.changeImage = async (req, res) => {
     let image = process.env.CLOUDINARY_BOOK_URL;
+    const terminal_ip = req.clientIp;
+    const user_id = req.user.userId;
     if (req.file) {
         image = req.file.path;
     }
     const { id } = req.params;
-    const [oldRows] = await con.promise().query('SELECT image FROM books WHERE id = ?', [id]);
+    const [oldRows] = await con.promise().query('SELECT title, image FROM books WHERE id = ?', [id]);
+    const title = oldRows[0].title;
     const oldImageUrl = oldRows[0].image;
     const oldPublicId = oldImageUrl.split('/').slice(-2).join('/').split('.').slice(0, -1).join('.');
+    await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Updated Book Image", ?, ?, ?)', [terminal_ip, user_id, title]);
     await con.promise().query('UPDATE books SET image = ? WHERE id = ?', [image, id]);
     const [rows] = await con.promise().query('SELECT image FROM books WHERE id = ?', [id]);
     const imageUrl = rows[0].image;

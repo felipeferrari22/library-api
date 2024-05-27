@@ -15,6 +15,7 @@ const generateToken = (user) => {
 module.exports.register = async (req, res) => {
   try {
     const { username, email, password } = req.body;
+    const terminal_ip = req.clientIp;
     if (!username || !email || !password) return res.status(422).json({ message: 'Please make sure all fields are filled in correctly.' });
     if (password && password.length < 3) return res.status(400).json({ message: "Password is too short." });
     if (await userExists(username.trim(), null)) return res.status(400).json({ message: 'User already exists' });
@@ -24,6 +25,7 @@ module.exports.register = async (req, res) => {
     con.query(query, [username, email, hashedPassword], function (err, result) {
       con.promise().query('SELECT image FROM users WHERE id = ?', [result.insertId])
         .then(([rows]) => {
+          con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Registered User", ?, ?, ?)', [terminal_ip, result.insertId, username]);
           const image = rows[0].image;
           const payload = { id: result.insertId, username, type: 'user', image };
           const token = generateToken(payload);
@@ -37,6 +39,7 @@ module.exports.register = async (req, res) => {
 };
 
 module.exports.login = (req, res, next) => {
+  const terminal_ip = req.clientIp;
   passport.authenticate("local", (err, user) => {
     if (err) {
       console.error('Error during login:', err);
@@ -47,6 +50,7 @@ module.exports.login = (req, res, next) => {
     }
     con.promise().query('SELECT image FROM users WHERE id = ?', [user.id])
     .then(([rows]) => {
+      con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Successful Login", ?, ?, ?)', [terminal_ip, user.id, user.username]);
       const image = rows[0].image;
       const payload = { id: user.id, username: user.username, type: user.type, image };
       const token = generateToken(payload);
@@ -61,6 +65,7 @@ module.exports.login = (req, res, next) => {
 
 module.exports.updateUser = async (req, res, next) => {
   const id = req.userId;
+  const terminal_ip = req.clientIp;
   if (id != req.params.id) return res.status(401).json({ message: "Unauthorized." });
   const { email, password, description } = req.body;
   if (!email || !password) return res.status(422).json({ message: 'Please make sure the necessary fields are filled in correctly.' });
@@ -79,6 +84,7 @@ module.exports.updateUser = async (req, res, next) => {
       hashedPassword = await hashPassword(password);
     }
   }
+  await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Updated User", ?, ?, ?)', [terminal_ip, id, email]);
   await con.promise().query("UPDATE users SET email = ?, password = ?, description = ? WHERE id = ?", [email, hashedPassword, description, id]);
   res.json('User updated');
   (req, res, next);
@@ -86,14 +92,17 @@ module.exports.updateUser = async (req, res, next) => {
 
 module.exports.changeImage = async (req, res, next) => {
   const { id } = req.params;
+  const terminal_ip = req.clientIp;
   if (id != req.userId) return res.status(401).json({ message: "Unauthorized." });
   let image = process.env.CLOUDINARY_PROFILE_URL;
   if (req.file) {
     image = req.file.path;
   }
-  const [oldRows] = await con.promise().query('SELECT image FROM users WHERE id = ?', [id]);
+  const [oldRows] = await con.promise().query('SELECT username, image FROM users WHERE id = ?', [id]);
   const oldImageUrl = oldRows[0].image;
+  const username = oldRows[0].username;
   const oldPublicId = oldImageUrl.split('/').slice(-2).join('/').split('.').slice(0, -1).join('.');
+  await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Updated User Image", ?, ?, ?)', [terminal_ip, id, username]);
   await con.promise().query('UPDATE users SET image = ? WHERE id = ?', [image, id]);
   const [rows] = await con.promise().query('SELECT image FROM users WHERE id = ?', [id]);
   const imageUrl = rows[0].image;
@@ -152,11 +161,13 @@ module.exports.loginStrategy = async (username, password, done) => {
     });
 
     if (!user) {
+      await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Unsuccessful Login", ?, ?, ?)', ['123', id, username]);
       return done(null, false, { message: 'Incorrect username or password.' });
     }
 
     const isValidPassword = await comparePassword(password, user.password);
     if (!isValidPassword) {
+      await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Unsuccessful Login", ?, ?, ?)', ['123', user.id, username]);
       return done(null, false, { message: 'Incorrect username or password.' });
     }
 

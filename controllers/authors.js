@@ -27,6 +27,8 @@ module.exports.showAuthor = async (req, res) => {
 
 module.exports.createAuthor = async (req, res) => {
     let image = process.env.CLOUDINARY_PROFILE_URL;
+    const terminal_ip = req.clientIp;
+    const user_id = req.user.userId;
     if (req.file) {
         image = req.file.path;
     }
@@ -34,12 +36,15 @@ module.exports.createAuthor = async (req, res) => {
     if (!(/[a-zA-Z]/.test(name))) {
         return res.status(422).json({ message: 'Insert a valid name.' });
     }
+    await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Created Author", ?, ?, ?)', [terminal_ip, user_id, name]);
     await con.promise().query('INSERT INTO authors (name, image, description) VALUES (?, ?, ?)', [name, image, description]);
     res.json('Author created');
 }
 
 module.exports.deleteAuthor = async (req, res) => {
     const { id } = req.params;
+    const terminal_ip = req.clientIp;
+    const user_id = req.user.userId;
     const [books] = await con.promise().query('SELECT id FROM books WHERE author = ?', [id]);
     if (books && books.length > 0) {
         const bookIds = books.map((book) => book.id);
@@ -53,35 +58,44 @@ module.exports.deleteAuthor = async (req, res) => {
             }
         }
     }
-    const [authorRows] = await con.promise().query('SELECT image FROM authors WHERE id = ?', [id]);
+    const [authorRows] = await con.promise().query('SELECT name, image FROM authors WHERE id = ?', [id]);
+    const name = authorRows[0].name;
     const authorImageUrl = authorRows[0].image;
     const authorPublicId = authorImageUrl.split('/').slice(-2).join('/').split('.').slice(0, -1).join('.');
     if (authorPublicId !== process.env.CLOUDINARY_PROFILE_ID) {
         await cloudinary.uploader.destroy(authorPublicId);
     }
+    await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Deleted Author", ?, ?, ?)', [terminal_ip, user_id, name]);
     await con.promise().query('DELETE FROM authors WHERE id = ?', [id]);
     res.json('Author deleted');
 };
 
 module.exports.updateAuthor = async (req, res) => {
     const { name, description } = req.body;
+    const terminal_ip = req.clientIp;
+    const user_id = req.user.userId;
     const { id } = req.params;
     if (!(/[a-zA-Z]/.test(name))) {
         return res.status(422).json({ message: 'Insert a valid name.' });
     }
+    await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Updated Author", ?, ?, ?)', [terminal_ip, user_id, name]);
     await con.promise().query('UPDATE authors SET name = ?, description = ? WHERE id = ?', [name, description, id]);
     res.json('Author updated');
 }
 
 module.exports.changeImage = async (req, res) => {
     let image = process.env.CLOUDINARY_PROFILE_URL;
+    const terminal_ip = req.clientIp;
+    const user_id = req.user.userId;
     if (req.file) {
         image = req.file.path;
     }
     const { id } = req.params;
-    const [oldRows] = await con.promise().query('SELECT image FROM authors WHERE id = ?', [id]);
+    const [oldRows] = await con.promise().query('SELECT name, image FROM authors WHERE id = ?', [id]);
+    const name = oldRows[0].name;
     const oldImageUrl = oldRows[0].image;
     const oldPublicId = oldImageUrl.split('/').slice(-2).join('/').split('.').slice(0, -1).join('.');
+    await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Updated Author Image", ?, ?, ?)', [terminal_ip, user_id, name]);
     await con.promise().query('UPDATE authors SET image = ? WHERE id = ?', [image, id]);
     const [rows] = await con.promise().query('SELECT image FROM authors WHERE id = ?', [id]);
     const imageUrl = rows[0].image;
