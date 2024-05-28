@@ -40,13 +40,13 @@ module.exports.register = async (req, res) => {
 
 module.exports.login = (req, res, next) => {
   const terminal_ip = req.clientIp;
-  passport.authenticate("local", (err, user) => {
+  passport.authenticate("local", (err, user, info) => {
     if (err) {
       console.error('Error during login:', err);
       return res.status(500).json({ message: 'Internal server error' });
     }
     if (!user) {
-      return res.status(401).json({ message: 'Invalid username or password' });
+      return res.status(401).json({ message: info.message });
     }
     con.promise().query('SELECT image FROM users WHERE id = ?', [user.id])
     .then(([rows]) => {
@@ -151,7 +151,8 @@ module.exports.favorite = async (req, res, next) => {
   (req, res, next);
 };
 
-module.exports.loginStrategy = async (username, password, done) => {
+module.exports.loginStrategy = async (req, username, password, done) => {
+  const terminal_ip = req.clientIp;
   try {
     const [user] = await new Promise((resolve, reject) => {
       con.query('SELECT * FROM users WHERE username=?', [username], function (err, rows) {
@@ -161,13 +162,20 @@ module.exports.loginStrategy = async (username, password, done) => {
     });
 
     if (!user) {
-      await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Unsuccessful Login", ?, ?, ?)', ['123', id, username]);
+      await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Unsuccessful Login (User does not exist)", ?, ?, ?)', [terminal_ip, null, username]);
       return done(null, false, { message: 'Incorrect username or password.' });
+    }
+
+    const logs = await con.promise().query('SELECT COUNT(*) FROM logs WHERE user_id = ? AND timestamp >= DATE_SUB(NOW(), INTERVAL 10 MINUTE) AND action_type LIKE "Unsuccessful Login%"', [user.id]);
+    const count = logs[0][0]['COUNT(*)'];
+    if (count > 4) {
+      await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Unsuccessful Login (Too Many Attempts)", ?, ?, ?)', [terminal_ip, user.id, username]);
+      return done(null, false, { message: 'Too many login attempts! Try again later.' });
     }
 
     const isValidPassword = await comparePassword(password, user.password);
     if (!isValidPassword) {
-      await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Unsuccessful Login", ?, ?, ?)', ['123', user.id, username]);
+      await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Unsuccessful Login (Wrong password)", ?, ?, ?)', [terminal_ip, user.id, username]);
       return done(null, false, { message: 'Incorrect username or password.' });
     }
 

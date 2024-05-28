@@ -1,6 +1,6 @@
 {
     "scripts": {
-        "start": "npm i  && sleep 10  && nodemon index.js"
+        "start": "npm i && nodemon index.js"
     },
     "dependencies": {
         "bcrypt": "^5.1.1",

@@ -9,7 +9,11 @@ const multer = require('multer');
 const {storage} = require('../cloudinary');
 const upload = multer({ storage });
 
-passport.use(new LocalStrategy(users.loginStrategy));
+passport.use('local', new LocalStrategy({
+    usernameField: 'username',
+    passwordField: 'password',
+    passReqToCallback: true
+  }, users.loginStrategy));
 
 router.post('/register', users.register);
 router.get('/user/:id', users.showUser);
