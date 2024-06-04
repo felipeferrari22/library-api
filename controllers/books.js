@@ -1,7 +1,12 @@
 const con = require('../database/db');
 const { cloudinary } = require('../cloudinary');
 require('dotenv').config();
-const requestIp = require('request-ip');
+const { Observer, User } = require('../utils/observer');
+const observer = new Observer();
+const user1 = new User();
+observer.addObserver(user1);
+const Book = require('../utils/models/Book');
+const { FavoriteBook, RatedBook } = require('../utils/models/BookDecorator');
 
 module.exports.getBooks = async (req, res) => {
     const { search } = req.query;
@@ -38,6 +43,7 @@ module.exports.createBook = async (req, res) => {
         authorId = authorRows[0].id;
     }
     await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Created Book", ?, ?, ?)', [terminal_ip, user_id, title]);
+    observer.notifyObservers("Created Book", { name: title });
     await con.promise().query('INSERT INTO books (title, release_date, qty_available, description, image, author) VALUES (?, ?, ?, ?, ?, ?)', [title, release_date, qty_available, description, image, authorId]);
     res.json('Book created');
 }
@@ -55,6 +61,7 @@ module.exports.deleteBook = async (req, res) => {
     }
     await con.promise().query("UPDATE users SET favorite_book = NULL WHERE favorite_book = ?", [id]);
     await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Deleted Book", ?, ?, ?)', [terminal_ip, user_id, title]);
+    observer.notifyObservers("Deleted Book", { name: title });
     await con.promise().query('DELETE FROM books WHERE id = ?', [id]);
     res.json('Book deleted');
 }
@@ -81,6 +88,7 @@ module.exports.updateBook = async (req, res) => {
         authorId = authorRows[0].id;
     }
     await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Updated Book", ?, ?, ?)', [terminal_ip, user_id, title]);
+    observer.notifyObservers("Updated Book", { name: title });
     await con.promise().query('UPDATE books SET title = ?, release_date = ?, description = ?, author = ?, qty_available = ? WHERE id = ?', [title, release_date, description, authorId, qty_available, id]);
     res.json('Book updated');
 }
@@ -98,6 +106,7 @@ module.exports.changeImage = async (req, res) => {
     const oldImageUrl = oldRows[0].image;
     const oldPublicId = oldImageUrl.split('/').slice(-2).join('/').split('.').slice(0, -1).join('.');
     await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Updated Book Image", ?, ?, ?)', [terminal_ip, user_id, title]);
+    observer.notifyObservers("Updated Book Image", { name: title });
     await con.promise().query('UPDATE books SET image = ? WHERE id = ?', [image, id]);
     const [rows] = await con.promise().query('SELECT image FROM books WHERE id = ?', [id]);
     const imageUrl = rows[0].image;
@@ -111,16 +120,37 @@ module.exports.changeImage = async (req, res) => {
 module.exports.showBook = async (req, res) => {
     const { id } = req.params;
     con.query('SELECT books.*, authors.name as authorName FROM books INNER JOIN authors ON books.author = authors.id WHERE books.id = ?', [id], (err, results) => {
-        const book = results[0];
-        if (!book) {
+        if (err) {
+            return res.status(500).json({ message: 'Internal server error' });
+        }
+        
+        const bookData = results[0];
+        if (!bookData) {
             return res.status(404).json({ message: 'Book not found' });
         }
-        con.query('SELECT comments.*, users.username FROM comments INNER JOIN users ON comments.user = users.id WHERE comments.book_id = ?', id, (err, comments) => {
-            const responseData = {
-                book: book,
-                comments: comments
-            };
-            res.json(responseData);
+        
+        let book = new Book(bookData.id, bookData.title, bookData.authorName, bookData.description, bookData.qty_available, bookData.image, bookData.release_date);
+        
+        con.query('SELECT COUNT(*) FROM users WHERE favorite_book = ?', [id], (err, favoriteCounter) => {
+            if (favoriteCounter[0]['COUNT(*)'] > 0) {
+                book = new FavoriteBook(book, favoriteCounter[0]['COUNT(*)']);
+            }
+        })
+        
+        con.query('SELECT AVG(rating) as rating FROM comments WHERE book_id = ?', [id], (err, ratings) => {
+            if (ratings[0].rating) {
+                book = new RatedBook(book, ratings[0].rating);
+            }
+            
+            console.log(book.getDescription());
+            
+            con.query('SELECT comments.*, users.username FROM comments INNER JOIN users ON comments.user = users.id WHERE comments.book_id = ?', [id], (err, comments) => {                
+                const responseData = {
+                    book: bookData,
+                    comments: comments
+                };
+                res.json(responseData);
+            });
         });
-    })
-}
+    });
+};
