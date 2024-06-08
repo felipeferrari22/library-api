@@ -1,3 +1,5 @@
+const FileLogger = require('./FileLogger');
+
 class Observer {
     constructor() {
         this.observers = [];
@@ -13,6 +15,7 @@ class Observer {
 
     notifyObservers(action, object) {
         this.observers.forEach(observer => observer.update(action, object));
+        FileLogger.log(`${action} - ${object.name}`);
     }
 }
 

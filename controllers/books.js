@@ -5,8 +5,6 @@ const { Observer, User } = require('../utils/observer');
 const observer = new Observer();
 const user1 = new User();
 observer.addObserver(user1);
-const Book = require('../utils/models/Book');
-const { FavoriteBook, RatedBook } = require('../utils/models/BookDecorator');
 
 module.exports.getBooks = async (req, res) => {
     const { search } = req.query;
@@ -120,37 +118,16 @@ module.exports.changeImage = async (req, res) => {
 module.exports.showBook = async (req, res) => {
     const { id } = req.params;
     con.query('SELECT books.*, authors.name as authorName FROM books INNER JOIN authors ON books.author = authors.id WHERE books.id = ?', [id], (err, results) => {
-        if (err) {
-            return res.status(500).json({ message: 'Internal server error' });
-        }
-        
-        const bookData = results[0];
-        if (!bookData) {
+        const book = results[0];
+        if (!book) {
             return res.status(404).json({ message: 'Book not found' });
         }
-        
-        let book = new Book(bookData.id, bookData.title, bookData.authorName, bookData.description, bookData.qty_available, bookData.image, bookData.release_date);
-        
-        con.query('SELECT COUNT(*) FROM users WHERE favorite_book = ?', [id], (err, favoriteCounter) => {
-            if (favoriteCounter[0]['COUNT(*)'] > 0) {
-                book = new FavoriteBook(book, favoriteCounter[0]['COUNT(*)']);
-            }
-        })
-        
-        con.query('SELECT AVG(rating) as rating FROM comments WHERE book_id = ?', [id], (err, ratings) => {
-            if (ratings[0].rating) {
-                book = new RatedBook(book, ratings[0].rating);
-            }
-            
-            console.log(book.getDescription());
-            
-            con.query('SELECT comments.*, users.username FROM comments INNER JOIN users ON comments.user = users.id WHERE comments.book_id = ?', [id], (err, comments) => {                
-                const responseData = {
-                    book: bookData,
-                    comments: comments
-                };
-                res.json(responseData);
-            });
+        con.query('SELECT comments.*, users.username FROM comments INNER JOIN users ON comments.user = users.id WHERE comments.book_id = ?', id, (err, comments) => {
+            const responseData = {
+                book: book,
+                comments: comments
+            };
+            res.json(responseData);
         });
-    });
-};
+    })
+}

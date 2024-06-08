@@ -1,5 +1,7 @@
 const con = require('../database/db');
 const { userExists, hashPassword, comparePassword } = require('../models/User');
+const { UserBuilder } = require('../utils/models/User');
+const SessionManager = require('../utils/SessionManager');
 const jwt = require('jsonwebtoken');
 const jwtSecret = process.env.SECRET;
 const passport = require("passport");
@@ -14,27 +16,48 @@ const generateToken = (user) => {
 
 module.exports.register = async (req, res) => {
   try {
-    const { username, email, password } = req.body;
-    const terminal_ip = req.clientIp;
-    if (!username || !email || !password) return res.status(422).json({ message: 'Please make sure all fields are filled in correctly.' });
-    if (password && password.length < 3) return res.status(400).json({ message: "Password is too short." });
-    if (await userExists(username.trim(), null)) return res.status(400).json({ message: 'User already exists' });
-    if (await userExists(null, email)) return res.status(400).json({ message: "There is already an account using this e-mail address." });
-    const hashedPassword = await hashPassword(password);
-    const query = 'INSERT INTO users (username, email, password) VALUES (?, ?, ?)';
-    con.query(query, [username, email, hashedPassword], function (err, result) {
-      con.promise().query('SELECT image FROM users WHERE id = ?', [result.insertId])
-        .then(([rows]) => {
-          con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Registered User", ?, ?, ?)', [terminal_ip, result.insertId, username]);
-          const image = rows[0].image;
-          const payload = { id: result.insertId, username, type: 'user', image };
-          const token = generateToken(payload);
-          res.json({ token });
-        })
-    });
+      const { username, email, password } = req.body;
+      const terminal_ip = req.clientIp;
+      if (!username || !email || !password) {
+          return res.status(422).json({ message: 'Please make sure all fields are filled in correctly.' });
+      }
+      if (password.length < 3) {
+          return res.status(400).json({ message: 'Password is too short.' });
+      }
+      if (await userExists(username.trim(), email)) {
+          return res.status(400).json({ message: 'User already exists or email is already in use.' });
+      }
+
+      const hashedPassword = await hashPassword(password);
+      const userBuilder = new UserBuilder()
+          .setUsername(username)
+          .setEmail(email)
+          .setPassword(hashedPassword);
+
+      const user = userBuilder.build();
+
+      const query = 'INSERT INTO users (username, email, password) VALUES (?, ?, ?)';
+      con.query(query, [user.username, user.email, user.password], function (err, result) {
+          if (err) {
+              return res.status(500).json({ message: 'Internal server error' });
+          }
+          con.promise().query('SELECT image FROM users WHERE id = ?', [result.insertId])
+              .then(([rows]) => {
+                  const image = rows[0].image;
+                  con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Registered User", ?, ?, ?)', [terminal_ip, result.insertId, username]);
+                  const payload = { id: result.insertId, username, type: user.type, image };
+                  const token = generateToken(payload);
+                  const sessionId = SessionManager.createSession(result.insertId);
+                  res.json({ token, sessionId });
+              })
+              .catch((err) => {
+                  console.error('Error retrieving user image:', err);
+                  res.status(500).json({ message: 'Internal server error' });
+              });
+      });
   } catch (err) {
-    console.error('Error registering user:', err);
-    res.status(500).json({ message: 'Internal server error' });
+      console.error('Error registering user:', err);
+      res.status(500).json({ message: 'Internal server error' });
   }
 };
 
@@ -54,13 +77,27 @@ module.exports.login = (req, res, next) => {
       const image = rows[0].image;
       const payload = { id: user.id, username: user.username, type: user.type, image };
       const token = generateToken(payload);
-      res.json({ token });
+      const sessionId = SessionManager.createSession(user.id);
+      console.log(sessionId)
+      res.json({ token, sessionId });
     })
     .catch(err => {
       console.error('Error fetching user image:', err);
       return res.status(500).json({ message: 'Internal server error' });
     });
   })(req, res, next);
+};
+
+module.exports.logout = (req, res) => {
+  const { sessionId } = req.body;
+
+  const duration = SessionManager.calculateSessionDuration(sessionId);
+
+  SessionManager.destroySession(sessionId);
+
+  console.log(duration)
+
+  res.json({ message: 'Logged out', sessionDuration: duration });
 };
 
 module.exports.updateUser = async (req, res, next) => {

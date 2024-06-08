@@ -12,7 +12,6 @@ con.connect(function (err) {
         terminal_ip VARCHAR(45) NOT NULL,
         user_id INT,
         record TEXT,
-        login_duration INT,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )`;
 

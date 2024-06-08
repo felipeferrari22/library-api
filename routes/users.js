@@ -21,5 +21,6 @@ router.put('/user/:id', jwtAuth, getIdFromToken, users.updateUser);
 router.put('/user/:id/image', jwtAuth, getIdFromToken, upload.single('image'), users.changeImage);
 router.put('/books/:id/favorite', jwtAuth, getIdFromToken, users.favorite);
 router.post("/login", users.login);
+router.post("/logout", users.logout);
 
 module.exports = router;
