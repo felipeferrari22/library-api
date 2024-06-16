@@ -1,4 +1,8 @@
 const con = require('../database/db');
+const { Observer, User } = require('../utils/observer');
+const observer = new Observer();
+const user1 = new User();
+observer.addObserver(user1);
 
 module.exports.getAvailableBooks = async (req, res) => {
     con.query('SELECT books.*, authors.name as authorName FROM books INNER JOIN authors ON books.author = authors.id WHERE qty_available > 0', (err, books) => {
@@ -19,6 +23,7 @@ module.exports.createRent = async (req, res) => {
       return res.status(422).json({ message: 'Insert a valid number of days.' });
     }
     await con.promise().query('INSERT INTO rents (date_rented, date_for_return, book_id, user) VALUES (CURDATE(), DATE_ADD(CURDATE(), INTERVAL ? DAY), ?, ?)', [daysRented, bookId, userId]);
+    observer.notifyObservers("Rented Book with ID", { name: bookId });
     await con.promise().query('UPDATE books SET qty_available = qty_available - 1 WHERE id = ?', bookId);
     return res.status(200).json({ message: 'Book rented!' });
 }

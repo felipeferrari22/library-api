@@ -1,6 +1,10 @@
 const con = require('../database/db');
 const { cloudinary } = require('../cloudinary');
 require('dotenv').config();
+const { Observer, User } = require('../utils/observer');
+const observer = new Observer();
+const user1 = new User();
+observer.addObserver(user1);
 
 module.exports.getAuthors = async (req, res) => {
     const { search } = req.query;
@@ -37,6 +41,7 @@ module.exports.createAuthor = async (req, res) => {
         return res.status(422).json({ message: 'Insert a valid name.' });
     }
     await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Created Author", ?, ?, ?)', [terminal_ip, user_id, name]);
+    observer.notifyObservers("Created Author", { name: name });
     await con.promise().query('INSERT INTO authors (name, image, description) VALUES (?, ?, ?)', [name, image, description]);
     res.json('Author created');
 }
@@ -66,6 +71,7 @@ module.exports.deleteAuthor = async (req, res) => {
         await cloudinary.uploader.destroy(authorPublicId);
     }
     await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Deleted Author", ?, ?, ?)', [terminal_ip, user_id, name]);
+    observer.notifyObservers("Deleted Author", { name: name });
     await con.promise().query('DELETE FROM authors WHERE id = ?', [id]);
     res.json('Author deleted');
 };
@@ -79,6 +85,7 @@ module.exports.updateAuthor = async (req, res) => {
         return res.status(422).json({ message: 'Insert a valid name.' });
     }
     await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Updated Author", ?, ?, ?)', [terminal_ip, user_id, name]);
+    observer.notifyObservers("Updated Author", { name: name });
     await con.promise().query('UPDATE authors SET name = ?, description = ? WHERE id = ?', [name, description, id]);
     res.json('Author updated');
 }
@@ -96,6 +103,7 @@ module.exports.changeImage = async (req, res) => {
     const oldImageUrl = oldRows[0].image;
     const oldPublicId = oldImageUrl.split('/').slice(-2).join('/').split('.').slice(0, -1).join('.');
     await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Updated Author Image", ?, ?, ?)', [terminal_ip, user_id, name]);
+    observer.notifyObservers("Updated Author Image", { name: name });
     await con.promise().query('UPDATE authors SET image = ? WHERE id = ?', [image, id]);
     const [rows] = await con.promise().query('SELECT image FROM authors WHERE id = ?', [id]);
     const imageUrl = rows[0].image;

@@ -1,13 +1,16 @@
 const con = require('../database/db');
 const { userExists, hashPassword, comparePassword } = require('../models/User');
 const { UserBuilder } = require('../utils/models/User');
-const SessionManager = require('../utils/SessionManager');
 const jwt = require('jsonwebtoken');
 const jwtSecret = process.env.SECRET;
 const passport = require("passport");
 const bcrypt = require("bcrypt");
 const { cloudinary } = require('../cloudinary');
 require('dotenv').config();
+const { Observer, User } = require('../utils/observer');
+const observer = new Observer();
+const user1 = new User();
+observer.addObserver(user1);
 
 const generateToken = (user) => {
   const payload = { userId: user.id, username: user.username, type: user.type, image: user.image };
@@ -45,10 +48,10 @@ module.exports.register = async (req, res) => {
               .then(([rows]) => {
                   const image = rows[0].image;
                   con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Registered User", ?, ?, ?)', [terminal_ip, result.insertId, username]);
+                  observer.notifyObservers("Registered User", { name: username });
                   const payload = { id: result.insertId, username, type: user.type, image };
                   const token = generateToken(payload);
-                  const sessionId = SessionManager.createSession(result.insertId);
-                  res.json({ token, sessionId });
+                  res.json({ token });
               })
               .catch((err) => {
                   console.error('Error retrieving user image:', err);
@@ -74,30 +77,17 @@ module.exports.login = (req, res, next) => {
     con.promise().query('SELECT image FROM users WHERE id = ?', [user.id])
     .then(([rows]) => {
       con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Successful Login", ?, ?, ?)', [terminal_ip, user.id, user.username]);
+      observer.notifyObservers("User Logged In", { name: user.username });
       const image = rows[0].image;
       const payload = { id: user.id, username: user.username, type: user.type, image };
       const token = generateToken(payload);
-      const sessionId = SessionManager.createSession(user.id);
-      console.log(sessionId)
-      res.json({ token, sessionId });
+      res.json({ token });
     })
     .catch(err => {
       console.error('Error fetching user image:', err);
       return res.status(500).json({ message: 'Internal server error' });
     });
   })(req, res, next);
-};
-
-module.exports.logout = (req, res) => {
-  const { sessionId } = req.body;
-
-  const duration = SessionManager.calculateSessionDuration(sessionId);
-
-  SessionManager.destroySession(sessionId);
-
-  console.log(duration)
-
-  res.json({ message: 'Logged out', sessionDuration: duration });
 };
 
 module.exports.updateUser = async (req, res, next) => {
@@ -122,6 +112,7 @@ module.exports.updateUser = async (req, res, next) => {
     }
   }
   await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Updated User", ?, ?, ?)', [terminal_ip, id, email]);
+  observer.notifyObservers("Updated User", { name: email });
   await con.promise().query("UPDATE users SET email = ?, password = ?, description = ? WHERE id = ?", [email, hashedPassword, description, id]);
   res.json('User updated');
   (req, res, next);
@@ -140,6 +131,7 @@ module.exports.changeImage = async (req, res, next) => {
   const username = oldRows[0].username;
   const oldPublicId = oldImageUrl.split('/').slice(-2).join('/').split('.').slice(0, -1).join('.');
   await con.promise().query('INSERT INTO logs (action_type, terminal_ip, user_id, record) VALUES ("Updated User Image", ?, ?, ?)', [terminal_ip, id, username]);
+  observer.notifyObservers("Updated User Image", { name: username });
   await con.promise().query('UPDATE users SET image = ? WHERE id = ?', [image, id]);
   const [rows] = await con.promise().query('SELECT image FROM users WHERE id = ?', [id]);
   const imageUrl = rows[0].image;
