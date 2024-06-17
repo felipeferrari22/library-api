@@ -6,7 +6,11 @@ class Observer {
     }
 
     addObserver(observer) {
-        this.observers.push(observer);
+        if(observer instanceof User) {
+            this.observers.push(observer);
+        } else {
+            throw new Error('Observer must be of type User');
+        }
     }
 
     removeObserver(observer) {
